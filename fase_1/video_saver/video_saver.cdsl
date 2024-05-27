@@ -1,0 +1,10 @@
+
+Component video_saver
+{
+	Communications
+	{
+
+	};
+	language Python;
+};
+

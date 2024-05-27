@@ -1,0 +1,10 @@
+
+Component depth_color_frame_saver
+{
+	Communications
+	{
+
+	};
+	language Python;
+};
+

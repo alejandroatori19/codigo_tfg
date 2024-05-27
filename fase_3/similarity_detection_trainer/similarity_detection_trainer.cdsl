@@ -1,0 +1,10 @@
+
+Component similarity_detection_trainer
+{
+	Communications
+	{
+
+	};
+	language Python;
+};
+
