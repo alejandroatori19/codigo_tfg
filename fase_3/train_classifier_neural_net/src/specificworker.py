@@ -82,7 +82,7 @@ class SpecificWorker(GenericWorker):
     datasetOriginal = None
 
     # Constantes
-    NUMERO_DATOS_DATASET = 5000
+    NUMERO_DATOS_DATASET = 50
     INPUT_SIZE = (350, 150, 3)
     MEZCLAR_DATASET = True
     NUMERO_DECIMALES = 7
@@ -291,7 +291,10 @@ class SpecificWorker(GenericWorker):
         # Se pasan al dispositivo correspondiente
         imagen1 = imagen1.to (self.device)
         imagen2 = imagen2.to (self.device)
-        resultado = resultado.float ().to (self.device)
+        resultado = resultado.float ().to (self.device).unsqueeze (1)
+        
+        print ("resultado", resultado.shape)
+        print ("resultado", resultado)
         
         self.optimizador.zero_grad ()
 
