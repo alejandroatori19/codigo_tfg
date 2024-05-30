@@ -31,34 +31,37 @@ class SpecificWorker(GenericWorker):
 
     # Las siguientes tres constantes se pueden modificar para intentar mejorar el rendimiento dela red (Los valores asignados son los recomendados)
     NUMERO_EPOCAS = 10
-    NUMERO_IMAGENES_POR_EPOCA = 50
+    NUMERO_IMAGENES_ENTRENAMIENTO = 50
+    NUMERO_IMAGENES_VALIDACION = 10  
     TASA_APRENDIZAJE = 0.001
+    BATCH_SIZE = 2                                              # Tiene que ser exponente de 2 y ser > 2
+    VALIDANDO_RED_NEURONAL = False
 
-    # Lo siguiente es para validar el modelo si se desea
-    NUMERO_IMAGENES_VALIDACION = 10           # Se recomienda poner de 5 a 10 veces menos que las que se asignen para entrenar
-
-    # Guarda las perdidas por cada epoca
-    listaPerdidasPorEpocas = []
-
+    # Rutas del dataset y destino del modelo entrenado
     rutaDatasetClasificado = "/media/robocomp/data_tfg/dataset_clasificado"
     rutaDestinoRedEntrenada = "/home/robocomp"
 
+    # Lista de rutas absolutas
     listaFotogramasObjetivo = []
     listaFotogramasNoObjetivo = []
 
-
+    # Constantes
+    NUMERO_DECIMALES = 8
     TAMANO_ENTRADA = [350, 150, 3]
     DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    VALIDACION_ACTIVA = False
     CONVERSOR = transforms.Compose([
         transforms.ToTensor(),  # Convertir la imagen a un tensor
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Assuming ImageNet normalization
     ])
 
-
+    # Contadores
     contadorEpocas = None
     contadorImagenes = None
-    contadorPerdidaEpoca = None
+    contadorPerdida = None
+
+    # Guarda las perdidas por cada epoca
+    listaPerdidasEntrenamiento = []
+    listaPerdidasValidacion = []
 
     # -------------------------------------------------
 
@@ -90,7 +93,7 @@ class SpecificWorker(GenericWorker):
 
         self.contadorEpocas = 0
         self.contadorImagenes = 0
-        self.contadorPerdidaEpoca = 0
+        self.contadorPerdida = 0
 
         return True
 
@@ -98,30 +101,70 @@ class SpecificWorker(GenericWorker):
 
     @QtCore.Slot()
     def compute(self):
-        # Si la validacion no esta activa significa que se esta entrenando
-        if not self.VALIDACION_ACTIVA:
+        # CAMBIO - BATCH_SIZE minimo 2
 
+        # Si la validacion no esta activa significa que se esta entrenando
+        if not self.VALIDANDO_RED_NEURONAL:
+            
             # En el entrenamiento se tienen que procesar n frames (Definido en variable global)
-            if self.contadorImagenes < self.NUMERO_IMAGENES_POR_EPOCA:
+            if self.contadorImagenes < self.NUMERO_IMAGENES_ENTRENAMIENTO:
+
+                # Se pasa la red neuronal del modo entrenamiento a validacion
+                self.redNeuronalDeteccionSimilaridad.train ()
 
                 # Eleccion de dos imagenes aleatoriamente (2 de objetivo o 1 del objetivo y 1 del no objetivo)
-                persona1, persona2, resultadoSimilitud = self.seleccion_imagenes_aleatoriamente ()
+                personas1, personas2, resultadoSimilitud = self.seleccion_imagenes_aleatoriamente1 ()
                 
-                self.entrenamiento_red_neuronal_una_imagen (persona1, persona2, resultadoSimilitud)
+                # Se entrena la red neuronal y se devuelve el resultado de la similitud (Valor entre 0 y 1)
+                prediccion_similitud = self.entrenamiento_red_neuronal (personas1, personas2, resultadoSimilitud)
 
-                self.interfaz_usuario (persona1, persona2, resultadoSimilitud)
+                # Se muestra al usuario ambos frames y el resultado de similitud entre ellos
+                self.interfaz_usuario (personas1, personas2, prediccion_similitud, resultadoSimilitud)
                     
             # Significa que ya proceso entrenando los n frames predefinidos
             else:
                 # Se inicia la validacion despues del entrenamiento
-                self.VALIDACION_ACTIVA = True
+                #self.VALIDANDO_RED_NEURONAL = True
+
+                # Guardados de valores permanentes
+                self.listaPerdidasEntrenamiento.append (round (self.contadorPerdida / self.contadorImagenes, self.NUMERO_DECIMALES))
 
                 # Reset de variables
                 self.contadorImagenes = 0
+                self.contadorPerdida = 0      
+                self.mostrar_datos_epoca_individual ()
+                
+                self.contadorEpocas += 1          
+
+                # Se comprueba si se ha acabado 
+                if self.contadorEpocas >= self.NUMERO_EPOCAS:
+                    sys.exit ("Final numero maximo de epocas alcanzada")
 
         # Si entra aqui es que esta validando la epoca
         else:
-            a = 0
+
+
+            if self.contadorImagenes < self.NUMERO_IMAGENES_VALIDACION:
+                # Se pasa la red neuronal del modo entrenamiento a validacion
+                self.redNeuronalDeteccionSimilaridad.eval ()
+
+                # Eleccion de dos imagenes aleatoriamente (2 de objetivo o 1 del objetivo y 1 del no objetivo)
+                persona1, persona2, resultadoSimilitud = self.seleccion_imagenes_aleatoriamente ()
+
+                prediccion_similitud = self.validacion_red_neuronal (persona1, persona2, resultadoSimilitud)
+
+
+            else:
+                # Se inicia el entremiento despues de la validacion
+                self.VALIDANDO_RED_NEURONAL = False
+
+                # Guardados de valores permanentes
+                self.listaPerdidasValidacion.append (round (self.contadorPerdida / len (self.contadorImagenes), self.NUMERO_DECIMALES))
+
+                # Reset de variables
+                self.contadorImagenes = 0
+                self.contadorPerdida = 0
+
 
         return True
     
@@ -175,6 +218,7 @@ class SpecificWorker(GenericWorker):
 
         # Generacion del modelo de red neuronal
         self.redNeuronalDeteccionSimilaridad = RedNeuronal(self.TAMANO_ENTRADA).to(self.DISPOSITIVO)
+        self.redNeuronalDeteccionSimilaridad.train ()
 
         # Carga una funcion predefinida de perdida (Se pueden crear por el usuario)
         self.funcionPerdida = nn.BCELoss ()
@@ -189,9 +233,8 @@ class SpecificWorker(GenericWorker):
     # ---------------------------------------
 
     def seleccion_imagenes_aleatoriamente (self):
-        # Lo primero es seleccionar dos imagenes aleatoriamente 
+        # Lo primero es seleccionar dos imagenes aleatoriamente (2 imagenes y 1 resultado * BATCH_SIZE)
         # Tanto la persona 1 como la 2 pueden tener personas objetivo y no objetivo (Si no crea conflicto)
-
 
         # Valores aleatorios entre 0 y 1 (Para ver si se coje objetivo o no objetivo)
         eleccionAleatoriaPersona1 = random.randint (0, 1)
@@ -222,24 +265,78 @@ class SpecificWorker(GenericWorker):
 
         return persona1Redimensionada, persona2Redimensionada, resultadoSimilitud
 
+    # ---------------------------------------
+
+    def seleccion_imagenes_aleatoriamente1 (self):
+        # Lo primero es seleccionar dos imagenes aleatoriamente (2 imagenes y 1 resultado * BATCH_SIZE)
+        # Tanto la persona 1 como la 2 pueden tener personas objetivo y no objetivo (Si no crea conflicto)
+        personas1 = []
+        personas2 = []
+        resultadosSimilitudes = []
+        
+        # Contador
+        contadorBatch = 0
+
+        # Mientras no alcance el BATCH_SIZE 
+        while contadorBatch < self.BATCH_SIZE:
+            # Valores aleatorios entre 0 y 1 (Para ver si se coje objetivo o no objetivo)
+            eleccionAleatoriaPersona1 = random.randint (0, 1)
+            eleccionAleatoriaPersona2 = random.randint (0, 1)
+
+            # Si es igual a 1 se coje una persona objetivo
+            if eleccionAleatoriaPersona1 == 1:
+                persona1 = cv.imread (random.choice(self.listaFotogramasObjetivo))
+
+            # Persona no objetivo si es igual a 0 (!= 1)
+            else:
+                persona1 = cv.imread (random.choice(self.listaFotogramasNoObjetivo))
+
+            # Si es igual a 1 se coje una persona objetivo
+            if eleccionAleatoriaPersona2 == 1:
+                persona2 = cv.imread (random.choice(self.listaFotogramasObjetivo))
+
+            # Persona no objetivo si es igual a 0 (!= 1)
+            else:
+                persona2 = cv.imread (random.choice (self.listaFotogramasNoObjetivo))
+
+            personas1.append (cv.resize (persona1, (self.TAMANO_ENTRADA[1], self.TAMANO_ENTRADA[0])))
+            personas2.append (cv.resize (persona2, (self.TAMANO_ENTRADA[1], self.TAMANO_ENTRADA[0])))
+
+            resultadosSimilitudes.append (float (eleccionAleatoriaPersona1 and eleccionAleatoriaPersona2))
+
+            contadorBatch += 1
+
+        return personas1, personas2, resultadosSimilitudes
+
     # ---------------------------------------------------------------------------------------
 
-    def entrenamiento_red_neuronal_una_imagen (self, persona1, persona2, resultadoSimilitud):
-        # Primero es necesario transformar las imagenes a tensores
-        persona1Tensor = self.CONVERSOR (persona1)
-        persona2Tensor = self.CONVERSOR (persona2)
-        resultadoSimilitudTensor = torch.tensor([resultadoSimilitud], dtype=torch.float32)      # Dandole formato [1] para luego poder igualar a la salida de la red neuronal
+    def entrenamiento_red_neuronal (self, personas1, personas2, resultadosSimilitudes):
+        personas1Tensor = []
+        for persona1 in personas1:
+            personas1Tensor.append (self.CONVERSOR (persona1))
         
+        personas2Tensor = []
+        for persona2 in personas2:
+            personas2Tensor.append (self.CONVERSOR (persona2))
+
+        personas1TensorArreglado = torch.stack(personas1Tensor, dim=0)
+        personas2TensorArreglado = torch.stack(personas2Tensor, dim=0)
+
+        # Primero es necesario transformar los resultados a tensores
+        resultadosSimilitudesTensor = torch.tensor(resultadosSimilitudes, dtype=torch.float32).unsqueeze (0)      # Dandole formato [1] para luego poder igualar a la salida de la red neuronal
+        resultadosSimilitudesTensor = resultadosSimilitudesTensor.view (2, 1)
+
         # Se pasan a la GPU o CPU
-        persona1EnDispositivo = persona1Tensor.to (self.DISPOSITIVO).unsqueeze (0)      # Se añade una dimension extra (No sirve para nada)
-        persona2EnDispositivo = persona2Tensor.to (self.DISPOSITIVO).unsqueeze (0)      # Se añade una dimension extra (No sirve para nada)
-        resultadoSimilitudEnDispositivo = resultadoSimilitudTensor.unsqueeze (0).to (self.DISPOSITIVO)
+        persona1EnDispositivo = personas1TensorArreglado.to (self.DISPOSITIVO)      # Se añade una dimension extra (No sirve para nada)
+        persona2EnDispositivo = personas2TensorArreglado.to (self.DISPOSITIVO)     # Se añade una dimension extra (No sirve para nada)
+        resultadoSimilitudEnDispositivo = resultadosSimilitudesTensor.to (self.DISPOSITIVO)
 
         # Limpieza de gradientes acumulados
         self.optimizador.zero_grad ()
 
         # Prediccion de la similitud por la red neuronal
         prediccionSimilitud = self.redNeuronalDeteccionSimilaridad (persona1EnDispositivo, persona2EnDispositivo)
+
         #resultado = self.redNeuronalDeteccionSimilaridad.predecir_resultado_individual (persona1EnDispositivo)
 
         # Perform the matrix multiplication
@@ -252,25 +349,35 @@ class SpecificWorker(GenericWorker):
         self.optimizador.step ()
 
         # Incremento de variables
-        self.contadorPerdidaEpoca += perdida.item ()
+        self.contadorPerdida += perdida.item ()
         self.contadorImagenes += 1
         
-        return
+        return prediccionSimilitud.tolist()
     
+    # ---------------------------------
+
+    def validacion_red_neuronal (self):
 
 
+        return
 
 
     # -----------------------------------------------------------------------
 
-    def interfaz_usuario (self, fotograma1, fotograma2, porcentajeSimilitud):
-        print ("Porcentaje Similitud:", porcentajeSimilitud)
+    def interfaz_usuario (self, imagenes1, imagenes2, prediccionesSimilitudes, resultadosSimilitudes):
+        print ("---------- INICIO BATCH ----------")
+        for fotograma1, fotograma2, prediccion, resultado in zip (imagenes1, imagenes2, prediccionesSimilitudes, resultadosSimilitudes):
+            
+            print ("Similitud real:", resultado)
+            print ("Similitud predicha:", prediccion)
+            #print ("-----------------------------------------")
 
-        cv.imshow ("Fotograma 1", fotograma1)
-        cv.imshow ("Fotograma 2", fotograma2)
+            cv.imshow ("Fotograma 1", fotograma1)
+            cv.imshow ("Fotograma 2", fotograma2)
 
-        # Se le asigna la espera minima de 1ms ya que interesa la fluidez
-        self.controlador_teclas (letraPulsada=cv.waitKey (0))
+            # Se le asigna la espera minima de 1ms ya que interesa la fluidez
+            self.controlador_teclas (letraPulsada=cv.waitKey (1))
+
 
         return
 
@@ -290,6 +397,17 @@ class SpecificWorker(GenericWorker):
                 # Actuacion  
                   
         return
+
+    # -
+
+    def mostrar_datos_epoca_individual (self):
+
+        print ("Epoca[" + str(self.contadorEpocas + 1) + "/" + str(self.NUMERO_EPOCAS) + "]", end="\t")        
+        print ("Perdida entrenamiento (Medias): " + str(self.listaPerdidasEntrenamiento[-1]), end="\t")
+        print ("")
+
+        return
+
 
     # ----------------------------------
 

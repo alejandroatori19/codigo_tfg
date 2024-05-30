@@ -88,7 +88,7 @@ class SpecificWorker(GenericWorker):
     NUMERO_DECIMALES = 7
 
     NUMERO_EPOCAS = 10
-    BATCH_SIZE = 32
+    BATCH_SIZE = 2
     LEARNING_RATE = 0.001
     
     # Extra
@@ -288,13 +288,18 @@ class SpecificWorker(GenericWorker):
         """
         imagen1, imagen2, resultado = next (iter (self.datasetEntrenamiento))
 
+        print ("imagen1 shape:", imagen1.shape)
+        print ("imagen2 shape:", imagen2.shape)
+        print ("resultado shape:", resultado.shape)
+
+
         # Se pasan al dispositivo correspondiente
         imagen1 = imagen1.to (self.device)
         imagen2 = imagen2.to (self.device)
-        resultado = resultado.float ().to (self.device).unsqueeze (1)
+        resultado = resultado.float ().to (self.device)
         
-        print ("resultado", resultado.shape)
-        print ("resultado", resultado)
+        #print ("resultado", resultado.shape)
+        #print ("resultado", resultado)
         
         self.optimizador.zero_grad ()
 
@@ -306,7 +311,7 @@ class SpecificWorker(GenericWorker):
 
         self.optimizador.step ()
 
-        self.contadorPerdida += valorPerdida.item () * imagen1.size (0)
+        self.contadorPerdida += valorPerdida.item () * self.BATCH_SIZE
 
         return
     
