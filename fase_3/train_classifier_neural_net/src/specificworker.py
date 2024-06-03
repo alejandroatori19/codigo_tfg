@@ -82,13 +82,13 @@ class SpecificWorker(GenericWorker):
     datasetOriginal = None
 
     # Constantes
-    NUMERO_DATOS_DATASET = 50
+    NUMERO_DATOS_DATASET = 1000
     INPUT_SIZE = (350, 150, 3)
     MEZCLAR_DATASET = True
     NUMERO_DECIMALES = 7
 
     NUMERO_EPOCAS = 10
-    BATCH_SIZE = 2
+    BATCH_SIZE = 32
     LEARNING_RATE = 0.001
     
     # Extra
@@ -288,9 +288,9 @@ class SpecificWorker(GenericWorker):
         """
         imagen1, imagen2, resultado = next (iter (self.datasetEntrenamiento))
 
-        print ("imagen1 shape:", imagen1.shape)
-        print ("imagen2 shape:", imagen2.shape)
-        print ("resultado shape:", resultado.shape)
+        #print ("imagen1 shape:", imagen1.shape)
+        #print ("imagen2 shape:", imagen2.shape)
+        #print ("resultado shape:", resultado.shape)
 
 
         # Se pasan al dispositivo correspondiente
