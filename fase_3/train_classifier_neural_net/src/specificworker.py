@@ -64,7 +64,7 @@ class SpecificWorker(GenericWorker):
 
     directorioObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/targetPerson"
     directorioNoObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/noTargetPerson"
-    directorioGuardarModelo = "/home/robocomp"
+    directorioGuardarModelo = "/home/robocomp/funciona"
 
     # Red neuronal
     modeloRedNeuronal = None
