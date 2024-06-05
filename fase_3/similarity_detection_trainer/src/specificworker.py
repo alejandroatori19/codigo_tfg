@@ -1,26 +1,28 @@
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
-from rich.console import Console
 from genericworker import *
-import interfaces as ifaces
 
 sys.path.append('/opt/robocomp/lib')
-console = Console(highlight=False)
-
 
 # Importacion de librerias necesarias
 import cv2 as cv
 import numpy as np
 import random
-import torchvision.transforms as transforms
-import torch
 import sys
+import time
+
+# Librería pytorch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
+import torch
+
+# Matplotlib para hacer graficos
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
-import time
+
+# -------------------------------
 
 class SimilarityDataset(Dataset):
     def __init__(self, fotogramas1, fotogramas2, resultados, tamano_entrada, transform):
@@ -31,7 +33,6 @@ class SimilarityDataset(Dataset):
         self.TRANSFORMADOR = transform
 
     def __len__ (self):
-        
         return len (self.listaFotogramas1)
 
     def __getitem__(self, idx):
@@ -46,6 +47,8 @@ class SimilarityDataset(Dataset):
         fotograma2Arreglado = self.TRANSFORMADOR(fotograma2Redimensionado)
 
         return fotograma1Arreglado, fotograma2Arreglado, resultado
+
+# --------------------------
 
 class RedNeuronal(nn.Module):
     def __init__(self, input_shape):
@@ -77,16 +80,15 @@ class RedNeuronal(nn.Module):
           
         return porcentajeSimilitud
 
+# ----------------------------------
+
 class SpecificWorker(GenericWorker):
   
     # Referencias al timer
     periodo = 33
-    tiempoInicio = None
-    tiempoMedioEpocas = []
 
-    directorioObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/targetPerson"
-    directorioNoObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/noTargetPerson"
-    directorioGuardarModelo = "/home/robocomp/funciona"
+    rutaDataset = "/media/robocomp/data_tfg/oficialDatasetFiltered1"
+    rutaDestinoModelo = "/home/robocomp/funciona"
 
     # Red neuronal
     redNeuronalDeteccionSimilitud = None
@@ -101,14 +103,12 @@ class SpecificWorker(GenericWorker):
     
     # Dataset
     datasetEntrenamiento = None
-    datasetOriginal = None
+    datasetValidacion = None
 
     # Constantes
     INPUT_SIZE = (350, 150, 3)
     MEZCLAR_DATASET = True
     NUMERO_DECIMALES = 7
-    
-
     
     # Contadores
     contadorEpocas = None
@@ -124,6 +124,7 @@ class SpecificWorker(GenericWorker):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Assuming ImageNet normalization
         ])
 
+    # -------------------------------------------------
 
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -136,11 +137,13 @@ class SpecificWorker(GenericWorker):
         self.timer.timeout.connect(self.compute)
         self.timer.start(self.Period)
 
-    def __del__(self):
-        
+    # ----------------
 
+    def __del__(self):
         return
 
+    # --------------------------
+    
     def setParams(self, params):
         self.contadorEpocas = 0
         self.contadorFotogramasProcesados = 0
@@ -149,15 +152,12 @@ class SpecificWorker(GenericWorker):
         return True
 
 
+    # ----------------
+
     @QtCore.Slot()
     def compute(self):
-        """
-        Realiza el entrenamiento del modelo.
-
-        Returns:
-            bool: Verdadero si se completó el cálculo.
-        """
-
+        finEpoca = False
+        
         if self.contadorEpocas < self.NUMERO_EPOCAS:
             self.redNeuronalDeteccionSimilitud.train ()
 
@@ -170,7 +170,6 @@ class SpecificWorker(GenericWorker):
                 
             else:
                 
-
                 # Reset e incrementos de variables
                 self.contadorEpocas += 1
                 self.contadorFotogramasProcesados = 0
@@ -179,91 +178,87 @@ class SpecificWorker(GenericWorker):
                 
                 # Muestra resultado epocas
                 self.mostrar_resultados_epoca ()
+                
+
 
         else:
-            self.save_model_and_figure ()
+            self.guardar_modelo_mostrar_resultados ()
             sys.exit ("FIN: Se ha acabado el código debido a que se han alcanzado el numero de epocas especificado")
 
         return True
 
-
-
-    # ------------------------------------------------
-    # ------------------ INITIALIZE ------------------
-    # ------------------------------------------------
+    # ---------------------------------------------
 
     def comprobacion_condiciones_necesarias (self):
 
-        # Genera seeds aleatoria
-        torch.manual_seed(42)
-        np.random.seed(42)
-        random.seed(42)
-
         # Se comprueba si existe la ruta del dataset
-        if not os.path.exists (self.directorioObjetivo) :            
-            sys.exit (f"ERROR (1): No existe el directorio {self.directorioObjetivo}. Compruebelo bien.")
-        
-        if not os.path.exists (self.directorioNoObjetivo):
-            sys.exit (f"ERROR (2): No existe el directorio {self.directorioNoObjetivo}. Compruebelo bien.")
+        if not os.path.exists (self.rutaDataset) :            
+            sys.exit (f"ERROR (1): No existe el directorio {self.rutaDataset}. Compruebelo bien.")
 
-        if not os.path.exists (self.directorioGuardarModelo):
-            sys.exit (f"ERROR (3): No existe el directorio {self.directorioGuardarModelo}. Compruebelo bien.")
-
-
-        # Si se llega a este punto existen las dos carpetas
-        self.cargar_dataset_del_disco ()
+        if not os.path.exists (self.rutaDestinoModelo):
+            sys.exit (f"ERROR (3): No existe el directorio {self.rutaDestinoModelo}. Compruebelo bien.")
 
         return
     
     # -----------------------------
 
     def preparacion_entorno (self):
-        """
-        Prepara el entorno para el entrenamiento.
-
-        Returns:
-            None
-        """
-        # Se crea el modelo de red neuronal
+        # Se crea la red neuronal basada en la arquitectura de la clase llamada
         self.redNeuronalDeteccionSimilitud = RedNeuronal(self.INPUT_SIZE).to(self.DISPOSITIVO)
 
         # Se define la funcion de perdida
         self.funcionPerdida = nn.BCELoss ()
 
-        # Se declara el optimizador (Tipo Adam) y se le asocia un learning rate
+        # Se declara el optimizador (Tipo Adam) y se le asocia una tasa de aprendizaje
         self.optimizador = torch.optim.Adam (self.redNeuronalDeteccionSimilitud.parameters (), lr = self.TASA_DE_APRENDIZAJE)
+        
+        # Se carga el dataset que se utiliza para entrenar/validar la red
+        self.carga_dataset_desde_disco ()
         
         return
 
     # ----------------------------------
 
-    def cargar_dataset_del_disco (self):
-        """
-        Carga el conjunto de datos desde el disco.
+    def carga_dataset_desde_disco (self):
+        # Se cargan las rutas de los archivos que se van a utilizar (Archivos del dataset. Mayor eficiencia)
+        fotogramasObjetivo = [self.rutaDataset + "/targetPerson/" + nombreArchivo for nombreArchivo in os.listdir(self.rutaDataset + "/targetPerson")]
+        fotogramasNoObjetivo = [self.rutaDataset + "/noTargetPerson/" + nombreArchivo for nombreArchivo in os.listdir(self.rutaDataset + "/noTargetPerson")]
 
-        Returns:
-            None
-        """
+        # Se crean las 3 listas
+        fotogramas1, fotogramas2, resultados = [], [], []
 
-        filesT = os.listdir(self.directorioObjetivo)
-        filesnT = os.listdir(self.directorioNoObjetivo)
-
-        listaRutasAbsolutasFramesT = [os.path.join(self.directorioObjetivo, file) for file in filesT]
-        listaRutasAbsolutasFramesnT = [os.path.join(self.directorioNoObjetivo, file) for file in filesnT]
-
-        X_train_frame1 = listaRutasAbsolutasFramesT
-        X_train_frame2 = []
-        y_train_similarity = []
-
-        # Lo primero de todo se va a rellenar la lista X_train_frame1 con valores aleatorios del mismo
-        if len (X_train_frame1) < self.NUMERO_IMAGENES_ENTRENAMIENTO:
-            while len(X_train_frame1) < self.NUMERO_IMAGENES_ENTRENAMIENTO:
-                X_train_frame1.append (random.choice (X_train_frame1))    
+        # Lo primero de todo se va a rellenar la lista fotogramas1 con valores aleatorios de la persona objetivo
+        while len(fotogramas1) < self.NUMERO_IMAGENES_ENTRENAMIENTO:
+            # Las primeras n interacciones guardarán a personas objetivo (Se quieren guardar todas las personas objetivo al menos 1 vez)
+            if len (fotogramas1) < len (fotogramasObjetivo):
+                fotogramas1.append (fotogramasObjetivo[len(fotogramas1)])    
         
-        else:
-            #X_train_frame1 = X_train_frame1[:self.NUMERO_DATOS_DATASET]
-            X_train_frame1 = [random.choice (listaRutasAbsolutasFramesT)for _ in range (self.NUMERO_IMAGENES_ENTRENAMIENTO)]
+            # Cuando se ha llenado se cogen aleatoriamente para completar
+            else:
+                fotogramas1.append (random.choice (fotogramasObjetivo))
+                
+        # Después hace falta poner la otra persona con la que compararla y puede ser de la persona objetivo o de las no objetivo
+        for _ in range (self.NUMERO_IMAGENES_ENTRENAMIENTO):
+            valorAleatorio = random.randint (0, 1)
+            if valorAleatorio == 1:
+                fotogramas2.append (random.choice (fotogramasObjetivo))
+            
+            else:
+                fotogramas2.append (random.choice (fotogramasNoObjetivo))
+                
+            resultados.append (valorAleatorio)
+            
+        # Mezclar los datos (Basicamente que no siempre la primera imagen sea la objetivo)
+        for i in range (self.NUMERO_IMAGENES_ENTRENAMIENTO):
+            # Se cambia el orden
+            if random.randint (0, 1) == 0 and resultados[i] == 0:
+                fotograma1 = fotogramas1 [i]
+                fotogramas1 [i] = fotogramas2 [i]
+                fotogramas2 [i] = fotograma1
 
+                                    
+
+        """
         # Se añade aleatoriamente imagenes del objetivo o no objetivos
         for i in range (self.NUMERO_IMAGENES_ENTRENAMIENTO):
             valorAleatorio = random.randint (0, 1)
@@ -279,42 +274,27 @@ class SpecificWorker(GenericWorker):
         for i in range (self.NUMERO_IMAGENES_ENTRENAMIENTO):
             # Se cambia el orden
             if random.randint (0, 1) == 0 and y_train_similarity[i] == 0:
-                image1 = X_train_frame1 [i]
-                X_train_frame1 [i] = X_train_frame2 [i]
+                image1 = fotogramas1 [i]
+                fotogramas1 [i] = X_train_frame2 [i]
                 X_train_frame2 [i] = image1
-
+        """
         # Creacion del dataset y su asociacion en la variable global
-        self.datasetOriginal = SimilarityDataset(X_train_frame1, X_train_frame2, y_train_similarity, self.INPUT_SIZE, self.TRANSFORMADOR)
+        datasetOriginal = SimilarityDataset(fotogramas1, fotogramas2, resultados, self.INPUT_SIZE, self.TRANSFORMADOR)
         
-        self.datasetEntrenamiento = DataLoader(self.datasetOriginal, batch_size=self.TAMANO_LOTE, shuffle=True)
+        self.datasetEntrenamiento = DataLoader(datasetOriginal, batch_size=self.TAMANO_LOTE, shuffle=True)
         
         return
 
-    # -------------------------------------------------
-    # -------------------- COMPUTE --------------------
-    # -------------------------------------------------
-    
+    # --------------------------------
+        
     def procesamiento_imagenes (self):
-        """
-        Procesa las imágenes y calcula la pérdida durante el entrenamiento.
 
-        Returns:
-            None
-        """
         imagen1, imagen2, resultado = next (iter (self.datasetEntrenamiento))
-
-        #print ("imagen1 shape:", imagen1.shape)
-        #print ("imagen2 shape:", imagen2.shape)
-        #print ("resultado shape:", resultado.shape)
-
 
         # Se pasan al dispositivo correspondiente
         imagen1 = imagen1.to (self.DISPOSITIVO)
         imagen2 = imagen2.to (self.DISPOSITIVO)
         resultado = resultado.float ().to (self.DISPOSITIVO)
-        
-        #print ("resultado", resultado.shape)
-        #print ("resultado", resultado)
         
         self.optimizador.zero_grad ()
 
@@ -343,9 +323,49 @@ class SpecificWorker(GenericWorker):
     
     # -------------------------------
 
-    def save_model_and_figure (self):
+    def guardar_modelo_mostrar_resultados (self):
         # Guardado del modelo de red neuronal
-        torch.save(self.redNeuronalDeteccionSimilitud.state_dict(), self.directorioGuardarModelo + "/model.pth")
+        torch.save(self.redNeuronalDeteccionSimilitud.state_dict(), self.rutaDestinoModelo + "/model.pth")
+        """
+        # Calculo final
+        self.tiempoEjecucion = time.time() - self.tiempoEjecucion
 
+        resultadosPorEpoca = [f"EPOCA[{i+1}/{self.NUMERO_EPOCAS}]  -  Perdida Entrenamiento: {self.listaPerdidasEntrenamiento[i]}  -  Perdida validacion: {self.listaPerdidasValidacion[i]}" for i in range(len(self.listaPerdidasEntrenamiento))]
+        
+        # Creacion de diccionario para guardar la informacion en formato JSON
+        resultadoFormatoJSON = {"Tiempo de conexion" : self.tiempoEjecucion,
+                                "Ruta destino del modelo" : self.rutaDestinoModelo,
+                                "Numero de epocas" : self.NUMERO_EPOCAS,
+                                "Tasa de aprendizaje" : self.TASA_APRENDIZAJE,
+                                "Tamano de batch" : self.BATCH_SIZE,
+                                "Resultados entrenamiento y validacion" : resultadosPorEpoca
+                                }
+        
+        # Resultados por consola (Temporales)
+        print ("\n\n----------- INICIO RESULTADOS -----------")
+        print ("Tiempo de conexion:", self.tiempoEjecucion, " segundos")
+        print ("Numero de epocas:", str(self.NUMERO_EPOCAS), "epocas")
+        print ("Tasa de aprendizaje", self.TASA_APRENDIZAJE)
+        print ("Tamano de batch", str (self.BATCH_SIZE))
+        print ("------------ FIN RESULTADOS ------------\n\n")
 
+        # Resultados por archivo JSON (Permanentes)
+        if os.path.exists (os.path.dirname (self.rutaDestinoResultados)):
+            with open (self.rutaDestinoResultados + "/data.json", 'w') as flujoSalida:
+                json.dump (resultadoFormatoJSON, flujoSalida)
+
+        # Configura el grafico
+        plt.figure(figsize=(10, 6))
+        plt.plot(list(range(1, self.NUMERO_EPOCAS + 1)), self.listaPerdidasEntrenamiento, 'b', label='Training Loss')
+        plt.plot(list(range(1, self.NUMERO_EPOCAS + 1)), self.listaPerdidasValidacion, 'r', label='Validation Loss')
+        plt.title('Training and Validation Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.grid(True)
+
+        # Guarda la gráfica en disco
+        plt.savefig (self.rutaDestinoResultados + "/training_validation_loss_plot.png")
+
+        """
         return
