@@ -64,7 +64,7 @@ class SpecificWorker(GenericWorker):
 
     directorioObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/targetPerson"
     directorioNoObjetivo = "/media/robocomp/data_tfg/oficialDatasetFiltered1/noTargetPerson"
-    directorioGuardarModelo = "/home/robocomp/funciona"
+    directorioGuardarModelo = "/home/robocomp/pruebas"
 
     # Red neuronal
     modeloRedNeuronal = None
@@ -82,7 +82,7 @@ class SpecificWorker(GenericWorker):
     datasetOriginal = None
 
     # Constantes
-    NUMERO_DATOS_DATASET = 1000
+    NUMERO_DATOS_DATASET = 5000
     INPUT_SIZE = (350, 150, 3)
     MEZCLAR_DATASET = True
     NUMERO_DECIMALES = 7
