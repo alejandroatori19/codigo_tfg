@@ -278,10 +278,6 @@ class SpecificWorker(GenericWorker):
     def interfaz_usuario (self, fotogramaOriginal, listaPrecisionDetecciones, listaCajaColisiones, indicePersonaObjetivo):
         # Primero se dibujan las bounding boxes sobre la imagen
         fotogramaConDetecciones = fotogramaOriginal.copy ()
-        
-        print ("Bounding boxes:", len (listaCajaColisiones))
-        print ("precision:", listaPrecisionDetecciones)
-
 
         # Se hace manualmente ya que la opcion que ofrece la librería muestra todas las cajas de colisiones y solo interesan las personas
         for i in range (len (listaCajaColisiones)):

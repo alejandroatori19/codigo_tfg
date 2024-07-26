@@ -1,0 +1,10 @@
+
+Component video_deteccion_and_selection_target
+{
+	Communications
+	{
+
+	};
+	language Python;
+};
+
