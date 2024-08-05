@@ -3,75 +3,71 @@ from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
 from genericworker import *
 
-# Librerías necesarias
+# Librerías necesarias especificas
 import pyrealsense2 as pr2
+from ultralytics import YOLO
+
+# Librerías generales
 import cv2 as cv
 import numpy as np
-from ultralytics import YOLO
 import os
+import warnings
 
-# Librerías red neuronal
-import torch 
+# Dataset y Red Neuronal
+import torch
 import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader, Dataset
 
-
+warnings.filterwarnings("ignore", message=".*cudnn.*", category=UserWarning)
 
 # --------------------------
 
-class RedNeuronal(nn.Module):
-    def __init__(self, input_shape):
-        super(RedNeuronal, self).__init__()
+class ResNetRegresion(nn.Module):
+    def __init__(self):
+        super(ResNetRegresion, self).__init__()
+        self.resnet = models.resnet18(weights=None)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, 1)
+        self.sigmoid = nn.Sigmoid()  
 
-        self.capasCompartidas = nn.Sequential(
-            nn.Conv2d(input_shape[2], 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(64 * (input_shape[0] // 4) * (input_shape[1] // 4), 64),
-            nn.ReLU()
-        )
-
-        self.resultado = nn.Linear (64 * 2, 1)
-        self.resultadoPorcentaje = nn.Sigmoid ()
-
-    def forward(self, fotograma1, fotograma2):
-        resultadoFotograma1 = self.capasCompartidas (fotograma1)
-        resultadoFotograma2 = self.capasCompartidas (fotograma2)
-        resultadosConcatenados = torch.cat ((resultadoFotograma1, resultadoFotograma2), dim=1)
-        resultadoUnico = self.resultado (resultadosConcatenados)
-        porcentajeSimilitud = self.resultadoPorcentaje (resultadoUnico)
-          
-        return porcentajeSimilitud
+    def forward(self, x):
+        x = self.resnet(x)
+        x = self.sigmoid(x)
+        return x
     
 # ----------------------------------
 
 class SpecificWorker(GenericWorker):
     periodo = 33
     
+    # Grabación
     conexionGrabacion = None
-    redNeuronalSimilitud = None
-    redNeuronalYOLO = None
-    
-    
-    # Rutas de archivos
     rutaGrabacion = "/media/robocomp/data_tfg/oficialVideos/video1.bag"
-    rutaPesosRedNeuronalSimilitud = "/home/robocomp/funciona/Similarity/weightModel.pth"
     
     # Red neuronal YOLO
-    PRECISION_MINIMA_ACEPTABLE = 0.75
+    redNeuronalYOLO = None
+    PRECISION_MINIMA_YOLO = 0.8
     
-    # Red neuronal obtencion grado similitud
-    TAMANO_ENTRADA = (350, 150, 3)
-    PORCENTAJE_MINIMO_ACEPTABLE = 0.8
+    # Red neuronal encargada del proceso de trackeo
+    redNeuronalEleccionObjetivo = None
+    rutaParametrosRedNeuronal = "/home/robocomp/pruebas/model_state.pth"
+    optimizador = None
+    funcionPerdida = None
     
-    # Flags generales
-    NUMERO_DECIMALES = 7
+    # Parametros de la red neuronal y sus componentes
+    PRECISION_MINIMA_SEGUIMIENTO = 0.8
+    TASA_APRENDIZAJE = 0.001
+    MOMENTUM = 0.9
+    transform = transforms.Compose([
+        transforms.ToPILImage(),  # Conversión de numpy a PIL Image
+        transforms.Resize((350, 150)),  # Redimensiona la imagen
+        transforms.ToTensor(),  # Conversion de imagen a tensor
+    ])
+
+    DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    # -------------------------------------------------
     
     # -------------------------------------------------
     
@@ -79,17 +75,15 @@ class SpecificWorker(GenericWorker):
         super(SpecificWorker, self).__init__(proxy_map)
         self.Period = self.periodo
 
+        # Comprobación de requisitos mínimos
         self.comprobacion_requisitos_minimos ()
 
         # Conexion con el fichero de la grabación
         self.iniciar_conexion_grabacion ()
         
-        # Carga y prepara las redes neuronales para ser tratados
-        self.iniciar_redes_neuronales ()
-        
+        # Prepara el entorno
         self.preparacion_entorno ()
-
-        sys.exit ("Testing")
+        
         # Arranca el timer
         self.timer.timeout.connect(self.compute)
         self.timer.start(self.Period)
@@ -97,6 +91,8 @@ class SpecificWorker(GenericWorker):
     # ----------------
     
     def __del__(self):
+        self.conexionGrabacion.stop ()
+        
         return
 
     # --------------------------
@@ -110,33 +106,37 @@ class SpecificWorker(GenericWorker):
     @QtCore.Slot()
     def compute(self):
         # Recepcion de fotograma junto con un flag que indica si se ha recibido o no.
-        hayFotograma, fotograma = self.conexionGrabacion.try_wait_for_frames ()
+        hayFotograma, fotogramas = self.conexionGrabacion.try_wait_for_frames ()
         
+        # Si hay fotogramas actua, si no, no hace nada
         if hayFotograma:
-            fotogramaColor, fotogramaProfundidad = self.preparacion_fotogramas (fotograma)    
-                
-            resultados = self.redNeuronalYOLO (fotogramaColor)
+            fotogramaColor, fotogramaProfundidad = self.preparacion_fotogramas (fotogramas)
             
-            listaCajasColisiones = self.filtrar_cajas_de_colisiones (resultados)
+            # Procesa la imagen para obtener los resultados (Bounding Boxes de personas)
+            resultados = self.redNeuronalYolo (fotogramaColor, verbose=False)
             
-            indiceObjetivo = self.eleccion_usuario_objetivo (listaCajasColisiones)
-                    
-            self.interfaz_usuario (fotogramaColor)
+            # Separación de datos, obtención del indice persona objetivo, aplicación de resultados
+            cajaColisiones = self.separacion_filtracion_resultados (resultados)
+            indiceObjetivo = self.obtencion_indice_persona_objetivo (fotogramaColor, cajaColisiones)
+            fotogramaConResultados = self.aplicar_resultados_fotograma (fotogramaColor, cajaColisiones, indiceObjetivo)
             
-        print ("Iteraccion")
+            # Interfaz de usuario (Muestra imagen al usuario)
+            self.interfaz_usuario (fotogramaColor, fotogramaConResultados)           
+
+        #sys.exit ("Testing")
+
 
         return
     
-    # -------------------------------------
+    # -----------------------------------------
     
     def comprobacion_requisitos_minimos (self):
         # Comprobacion de que existe la ruta de la grabacion
         if not os.path.exists (self.rutaGrabacion):
             sys.exit ("ERROR (1): La ruta de la grabacion no existe. Ruta: " + self.rutaGrabacion)
         
-        # Comprobacion de que existe la ruta de los pesos de la red neuronal    
-        if not os.path.exists (self.rutaPesosRedNeuronalSimilitud):
-            sys.exit ("ERROR (2): La ruta de los pesos de red neuronal no existe. Ruta: " + self.rutaPesosRedNeuronalSimilitud)
+        if not os.path.exists (self.rutaParametrosRedNeuronal):
+            sys.exit ("ERROR (2): La ruta de los parámetros de la red no existe. Ruta: " + self.rutaParametrosRedNeuronal)
         
         return
     
@@ -155,172 +155,128 @@ class SpecificWorker(GenericWorker):
         
         return
     
-    # ----------------------------------
-    
-    def iniciar_redes_neuronales (self):
-        # Crea la red neuronal y carga los pesos desde el archivo (Pesos entrenados)
-        redNeuronalSimilitud = RedNeuronal (self.TAMANO_ENTRADA)
-        redNeuronalSimilitud.load_state_dict(torch.load(self.rutaPesosRedNeuronalSimilitud))
-        
-        # Carga de red neuronal YOLO (Intrinsecamente se cargan los pesos pertinentes)
-        self.redNeuronalYOLO = YOLO("yolov8s.pt")
-        
-        return
-    
-    # ---------------------------
+    # -----------------------------
     
     def preparacion_entorno (self):
-        while True:
-            # Recepcion de fotograma junto con un flag que indica si se ha recibido o no.
-            hayFotograma, fotograma = self.conexionGrabacion.try_wait_for_frames ()
-            
-            if hayFotograma:
-                fotogramaColor = self.preparacion_fotogramas (fotograma)  
-                
-                resultados = self.redNeuronalYOLO (fotogramaColor, verbose=False) 
-                
-                listaCajasColisiones = self.filtrar_cajas_de_colisiones (resultados)
-                
-                indiceObjetivo = self.obtencion_indice_objetivo_manual (fotogramaColor, listaCajasColisiones)
-                
-                self.interfaz_usuario (fotogramaColor, listaCajasColisiones, indiceObjetivo)
-                
-                if indiceObjetivo != -1:
-                    break
-                
+        # Lo primero es cargar el modelo de red neuronal de yolo (Hay distitos modelos, mirar en la web de ultralytics)
+        self.redNeuronalYolo = YOLO ("yolov8s.pt")
+
+        # Red neuronal de seguimiento
+        self.redNeuronalEleccionObjetivo = ResNetRegresion ()
+        self.redNeuronalEleccionObjetivo.load_state_dict(torch.load(self.rutaParametrosRedNeuronal))
+        self.redNeuronalEleccionObjetivo = self.redNeuronalEleccionObjetivo.to (self.DISPOSITIVO)
+        
+        # Parametros red neuronal de seguimiento (Entrenamiento y resultados)
+        self.funcionPerdida = nn.MSELoss()
+        self.optimizador = torch.optim.SGD(self.redNeuronalEleccionObjetivo.parameters(), lr=self.TASA_APRENDIZAJE, momentum=self.MOMENTUM) # Momentum = convergencia
         return
+
+    # --------------------------------------------
     
+    def preparacion_fotogramas (self, fotogramas):
+        # Obtención de datos de los fotogramas
+        fotogramaColor = fotogramas.get_color_frame().get_data ()
+        fotogramaProfundidad = fotogramas.get_depth_frame().get_data ()
+       
+        # Se convierte en array para poder procesarlo con la red neuronal
+        fotogramaColorArray = np.asanyarray(fotogramaColor)
+        fotogramaProfundidadArray = np.asanyarray(fotogramaColor)
+       
+        return fotogramaColorArray, fotogramaProfundidadArray
+
     # -------------------------------------------
     
-    def preparacion_fotogramas (self, fotograma):
-        # Extraccion de los fotogramas y sus datos y conversion a tipo array de numpy para su tratamiento y gestion
-        fotogramaColor = np.asarray (fotograma.get_color_frame ().get_data ())
-        #fotogramaProfundidad = np.asarray (fotograma.get_depth_frame ().get_data ())
-        
-        #return fotogramaColor, fotogramaProfundidad
-        return fotogramaColor
-    
-    # -------------------------------------------------
-    
-    def filtrar_cajas_de_colisiones (self, resultados):
+    def separacion_filtracion_resultados (self, resultados):
         # Se crean listas vacias para guardar la información
         listaCajaColisionesDetecciones = []
 
         # Se separan los resultados
         for deteccion in resultados[0].boxes:
 
-            # Si es una persona los resultados se tienen que guardar. Si no, no interesan (Mejora la eficiencia)
-            if deteccion.cls == 0 and deteccion.conf > self.PRECISION_MINIMA_ACEPTABLE:
+            # Si es una persona los resultados se tienen que guardar. Si no, no interesan (Intento de mejora de eficiencia)
+            if deteccion.cls == 0 and deteccion.conf > self.PRECISION_MINIMA_YOLO:
 
                 # Para las cajas de colision son 4 valores en lugar de uno
                 listaCajaColisionesDetecciones.append ([int(coordenada.item()) for coordenada in deteccion.xyxy.to('cpu')[0]]) 
 
         return listaCajaColisionesDetecciones
-    
-    # -------------------------------
-    
-    def eleccion_usuario_objetivo (self, fotogramaOriginal, fotogramaObjetivoAnterior, listaCajasColisiones):
-        indiceObjetivo = -1
-        maximaSimilitud = 0
-        contador = 0
-        
-        # Para cada caja de colision
-        for cajaColision in listaCajasColisiones:
-            # Se obtiene la region de interes (Parte de la imagen original)
-            regionInteres = fotogramaOriginal[cajaColision[1]:cajaColision[3], cajaColision[0]:cajaColision[2]]
 
-            regionInteresRedimensionado = cv.resize (regionInteres, (self.TAMANO_ENTRADA[1], self.TAMANO_ENTRADA[0]))
+    # ---------------------------------------
+    def obtencion_indice_persona_objetivo (self, imagenOriginal, cajaColisiones):
+        indiceObjetivo = -1
+        valorMaximo = 0
+        
+        for i in range (len (cajaColisiones)):
+            roi = imagenOriginal[cajaColisiones[i][1]:cajaColisiones[i][3], cajaColisiones[i][0]:cajaColisiones[i][2]]
+
+            # Transforma la imagen para poder ser procesada y le añade la dimension de batch (Es una sola imagen por batch)
+            imagenPreparada = self.transform(roi)
+            imagenPreparada = imagenPreparada.unsqueeze(0)  
+            imagenPreparadaDispositivo = imagenPreparada.to (self.DISPOSITIVO)
             
-            resultado = self.redNeuronalSimilitud (fotogramaObjetivoAnterior, regionInteresRedimensionado)
+            # En modo evaluación la red neuronal no se modifica (No aprende)
+            self.redNeuronalEleccionObjetivo.eval ()
             
-            # Si supera el minimo aceptable y mejora al anterior entonces hay nuevo objetivo
-            if resultado > maximaSimilitud and resultado > self.PORCENTAJE_MINIMO_ACEPTABLE:
-                indiceObjetivo = contador
-                maximaSimilitud = resultado
-                
-            contador += 1
-                
-        return indiceObjetivo, maximaSimilitud
+            # Obtiene una predicción del roi insertado
+            with torch.no_grad():
+                prediccion = self.redNeuronalEleccionObjetivo(imagenPreparadaDispositivo)
+                prediccion = prediccion.item ()
+            
+            # Actualiza el mejor hasta ahora
+            if valorMaximo < prediccion and prediccion > self.PRECISION_MINIMA_SEGUIMIENTO:
+                indiceObjetivo = i
+                valorMaximo = prediccion
+        
+        return indiceObjetivo
+
+    # ---------------------------------------------------------------------
     
-    # ------------------------------------------
-    
-    def interfaz_usuario (self, fotogramaOriginal, listaCajaColisiones, indicePersonaObjetivo):
+    def aplicar_resultados_fotograma (self, fotogramaOriginal, cajaColisiones, indiceObjetivo):
         # Primero se dibujan las bounding boxes sobre la imagen
-        fotogramaConDetecciones = fotogramaOriginal.copy ()
+        fotogramaConResultados = fotogramaOriginal.copy ()
 
         # Se hace manualmente ya que la opcion que ofrece la librería muestra todas las cajas de colisiones y solo interesan las personas
-        for i in range (len (listaCajaColisiones)):
+        for i in range (len (cajaColisiones)):
+
             # Se asigna un color distinto dependiendo si la persona es la objetivo o no
-            if indicePersonaObjetivo == i:
-                text = "Target"
+            if indiceObjetivo == i:
                 color = (0, 255, 0)
             else:
-                text = "No target"
                 color = (0, 0, 255)
 
             # Se dibuja un rectangulo simulando la bounding box (Verde si es la persona objetivo y roja si no)
-            cv.rectangle (fotogramaConDetecciones, 
-                          (listaCajaColisiones[i][0], listaCajaColisiones[i][1]),
-                          (listaCajaColisiones[i][2], listaCajaColisiones[i][3]),
+            cv.rectangle (fotogramaConResultados, 
+                          (cajaColisiones[i][0], cajaColisiones[i][1]),
+                          (cajaColisiones[i][2], cajaColisiones[i][3]),
                           color,
                           2
                           )
+          
             
-            cv.putText (fotogramaConDetecciones, 
-                        text, 
-                        (listaCajaColisiones[i][0], listaCajaColisiones[i][1] - 10), 
-                        cv.FONT_HERSHEY_SIMPLEX, 
-                        0.5, 
-                        color, 
-                        2)
-            
-        cv.imshow ("Fotograma original", fotogramaOriginal)
-        cv.imshow ("Fotograma con detecciones", fotogramaConDetecciones)
-
-        # Se le asigna la espera minima de 1ms ya que interesa la fluidez
-        self.controlador_teclas (letraPulsada=cv.waitKey (1))
-
-        return
-
+        return fotogramaConResultados
+    
     # ------------------------------------------
-
+    
+    def interfaz_usuario (self, fotogramaColor, fotogramaConResultados):
+        # Se muestran por la interfaz de opencv cuyas ventanas tienen asignadas el nombre indicado
+        cv.imshow ("Fotogramas Color", fotogramaColor)
+        cv.imshow ("Fotogramas Profundidad", fotogramaConResultados) 
+        
+        # Gestiona la tecla pulsada
+        self.controlador_teclas (cv.waitKey (1))
+        
+        return
+    
+    # ------------------------------------------
+    
     def controlador_teclas (self, letraPulsada):
+        
         # Si el valor es -1 siginifca que no se pulso ninguna tecla (No merece la pena hacer ninguna comprobacion)
         if letraPulsada != -1:
 
             # Se ha pulsado la letra ESC
             if letraPulsada == 27:
-                sys.exit ("FIN EJECUCION")
-                
-            elif letraPulsada == 13:
-                return True
-                
-            # Es escalable (Usando la siguiente estructura)
-            #elif letraPulsada == <codigo letra>:
-                # Codigo si se pulsa la tecla
+                sys.exit ("FIN EJECUCION: Presionada tecla ESC")
+
         
-        return False
-    
-    def obtencion_indice_objetivo_manual (self, fotograma, listaCajasColisiones):
-        print ("AVISO (1): Para el primer fotograma cuando se muestre la region de interes pertinente presione la siguiente tecla")
-        print ("\tPresione ENTER cuando vea a la persona objetivo. Si no, pulse cualquiera")
-
-        indiceObjetivo = -1
-        contadorDetecciones = 0
-
-        for cajaColision in listaCajasColisiones:
-            regionInteres = fotograma[cajaColision[1]:cajaColision[3], cajaColision[0]:cajaColision[2]]
-
-            cv.imshow ("Region interes", regionInteres)
-
-            if self.controlador_teclas (letraPulsada=cv.waitKey (0)):
-                indiceObjetivo = contadorDetecciones
-                self.fotogramaOobjetivoAnterior = regionInteres
-                break
-
-            contadorDetecciones += 1
-
-        # Libera los recursos para no tener tantas ventanas de opencv y diferenciar
-        cv.destroyWindow("Region interes")
-
-        return indiceObjetivo
+        return

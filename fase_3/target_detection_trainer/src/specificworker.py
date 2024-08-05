@@ -32,7 +32,6 @@ class DatasetPersonalizado(Dataset):
         # Transformación de datos
         self.transformacion = transforms.Compose([
             transforms.ToTensor(),
-            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Assuming ImageNet normalization
         ])
         
     def __len__(self):
@@ -97,10 +96,11 @@ class SpecificWorker(GenericWorker):
     numeroImagenesValidacion = None
 
     # Flags
-    REEMPLAZAR_MODELO = True
+    REEMPLAZAR_MODELO = False
     NUMERO_DECIMALES = 8
     DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
+    # -------------------------------------------------
     
     def __init__(self, proxy_map, startup_check=False):
         super(SpecificWorker, self).__init__(proxy_map)
@@ -109,6 +109,7 @@ class SpecificWorker(GenericWorker):
         # Comprobacion iniciales
         self.comprobacion_requisitos_minimos ()
         
+        # Prepara el entorno (Carga del dataset, inicializa la red neuronal y sus componentes)
         self.preparacion_entorno ()
         
         # Inicio del timer
@@ -117,11 +118,14 @@ class SpecificWorker(GenericWorker):
         
         return
 
+    # ----------------
+
     def __del__(self):
         
         
         return
-        
+    
+    # --------------------------
 
     def setParams(self, params):
         self.epoca = 0
@@ -132,7 +136,8 @@ class SpecificWorker(GenericWorker):
         
         return
 
-
+    # ----------------
+    
     @QtCore.Slot()
     def compute(self):
         
@@ -190,8 +195,8 @@ class SpecificWorker(GenericWorker):
             sys.exit ("ERROR (3): Comprueba que el directorio destino del modelo existe - Ruta: " + self.destinoModelo + "\n\n")
             
         # Si no esta habilitado el reemplazo entonces acaba (Es un control de seguridad para evitar posibles errores)
-        if not self.REEMPLAZAR_MODELO: 
-            sys.exit ("ERROR (3): No esta habilitado el reemplazo de dataset\n\n")
+        if not self.REEMPLAZAR_MODELO and os.path.exists (self.destinoModelo + "/model_state.pth"): 
+            sys.exit ("ERROR (4): No esta habilitado el reemplazo de dataset\n\n")
         return
     
     # -----------------------------
@@ -203,9 +208,6 @@ class SpecificWorker(GenericWorker):
         
         self.numeroImagenesEntrenamiento = len (x_datos_entrenamiento)
         self.numeroImagenesValidacion = len (x_datos_validacion)
-        
-        #self.numeroImagenesEntrenamiento = 128
-        #self.numeroImagenesValidacion = 64
         
         # Creación del dataset
         datasetEntrenamiento = DatasetPersonalizado (x_datos_entrenamiento, y_datos_entrenamiento)
@@ -260,7 +262,7 @@ class SpecificWorker(GenericWorker):
                
         return x_datos_entrenamiento, y_datos_entrenamiento, x_datos_validacion, y_datos_validacion
 
-    # --------------------------------
+    # ------------------------------------
 
     def entrenamiento_red_neuronal (self):
         # Obtencion de datos
@@ -343,7 +345,7 @@ class SpecificWorker(GenericWorker):
         print ("----------------- FIN ENTRENAMIENTO -----------------\n\n")
         
         # Guardado del modelo de red neuronal
-        torch.save(self.redNeuronal.state_dict(), self.destinoModelo + "/model_state2.pth")
+        torch.save(self.redNeuronal.state_dict(), self.destinoModelo + "/model_state.pth")
         
         
         # Guardado en un string de los resultados por epoca de perdidas en entrenamiento y validacion
