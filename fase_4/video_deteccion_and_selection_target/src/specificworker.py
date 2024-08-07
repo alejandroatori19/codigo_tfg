@@ -20,9 +20,33 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, Dataset
 
+# Ignora un error que aparece al principio y que no afecta al código 
 warnings.filterwarnings("ignore", message=".*cudnn.*", category=UserWarning)
 
-# --------------------------
+# ----------------------------------
+
+class DatasetPersonalizado(Dataset):
+    def __init__(self, imagenesEntrada, resultadosImagenes):
+        self.imagenesEntrada = imagenesEntrada
+        self.resultadosImagenes = resultadosImagenes
+        transformacion = transforms.Compose([
+            transforms.ToPILImage(),  # Conversión de numpy a PIL Image
+            transforms.Resize((350, 150)),  # Redimensiona la imagen
+            transforms.ToTensor(),  # Conversion de imagen a tensor
+        ])              
+        
+    def __len__(self):
+        return len(self.imagenesEntrada)
+
+    def __getitem__(self, indice):
+        
+        imagenTransformada = self.transformacion(self.imagenesEntrada[indice])
+        
+        resultados = self.resultadosImagenes[indice]
+        
+        return imagenTransformada, resultados
+
+# -------------------------------
 
 class ResNetRegresion(nn.Module):
     def __init__(self):
@@ -54,7 +78,8 @@ class SpecificWorker(GenericWorker):
     rutaParametrosRedNeuronal = "/home/robocomp/pruebas/model_state.pth"
     optimizador = None
     funcionPerdida = None
-    
+    historialPerdidasEpoca = []
+        
     # Parametros de la red neuronal y sus componentes
     PRECISION_MINIMA_SEGUIMIENTO = 0.8
     TASA_APRENDIZAJE = 0.001
@@ -64,8 +89,25 @@ class SpecificWorker(GenericWorker):
         transforms.Resize((350, 150)),  # Redimensiona la imagen
         transforms.ToTensor(),  # Conversion de imagen a tensor
     ])
-
+    
+    # Entrenamiento de red neuronal
+    TAMANO_ENTRADA = [350, 150, 3 ]
+    IMAGENES_POR_EPOCA = 1000
+    batchSize = 32
+    
+    # Variables para entrenamiento (Modificables)    
+    entradaEntrenamiento = []
+    resultadoEntrenamiento = []
+    perdidasEpoca = None
+    contadorImagenesProcesadas = None
+    contadorEpocas = None
+    
+    
+    contadorImagenes = None
+    
+    # Asigna el dispositivo
     DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    NUMERO_DECIMALES = 8
     
     # -------------------------------------------------
     
@@ -98,16 +140,23 @@ class SpecificWorker(GenericWorker):
     # --------------------------
 
     def setParams(self, params):
-
+        self.contadorImagenesProcesadas = 0
+        self.perdidasEpoca = 0
+        self.contadorEpocas = 0
+        
+        self.contadorImagenes = 0
         return
 
     # ----------------
 
     @QtCore.Slot()
     def compute(self):
+        
+        print ("hola")
+
         # Recepcion de fotograma junto con un flag que indica si se ha recibido o no.
         hayFotograma, fotogramas = self.conexionGrabacion.try_wait_for_frames ()
-        
+                
         # Si hay fotogramas actua, si no, no hace nada
         if hayFotograma:
             fotogramaColor, fotogramaProfundidad = self.preparacion_fotogramas (fotogramas)
@@ -121,10 +170,14 @@ class SpecificWorker(GenericWorker):
             fotogramaConResultados = self.aplicar_resultados_fotograma (fotogramaColor, cajaColisiones, indiceObjetivo)
             
             # Interfaz de usuario (Muestra imagen al usuario)
-            self.interfaz_usuario (fotogramaColor, fotogramaConResultados)           
-
-        #sys.exit ("Testing")
-
+            self.interfaz_usuario (fotogramaColor, fotogramaConResultados)     
+            
+            self.contadorImagenes += 1
+            print ("Numero Imagenes:", self.contadorImagenes)
+            
+        else:
+            print ("Error")
+            sys.exit ("Testing")
 
         return
     
@@ -184,7 +237,7 @@ class SpecificWorker(GenericWorker):
        
         return fotogramaColorArray, fotogramaProfundidadArray
 
-    # -------------------------------------------
+    # ------------------------------------------------------
     
     def separacion_filtracion_resultados (self, resultados):
         # Se crean listas vacias para guardar la información
@@ -201,7 +254,8 @@ class SpecificWorker(GenericWorker):
 
         return listaCajaColisionesDetecciones
 
-    # ---------------------------------------
+    # ---------------------------------------------------------------------------
+    
     def obtencion_indice_persona_objetivo (self, imagenOriginal, cajaColisiones):
         indiceObjetivo = -1
         valorMaximo = 0
@@ -211,7 +265,7 @@ class SpecificWorker(GenericWorker):
 
             # Transforma la imagen para poder ser procesada y le añade la dimension de batch (Es una sola imagen por batch)
             imagenPreparada = self.transform(roi)
-            imagenPreparada = imagenPreparada.unsqueeze(0)  
+            imagenPreparada = imagenPreparada.unsqueeze(0)
             imagenPreparadaDispositivo = imagenPreparada.to (self.DISPOSITIVO)
             
             # En modo evaluación la red neuronal no se modifica (No aprende)
@@ -229,7 +283,7 @@ class SpecificWorker(GenericWorker):
         
         return indiceObjetivo
 
-    # ---------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------
     
     def aplicar_resultados_fotograma (self, fotogramaOriginal, cajaColisiones, indiceObjetivo):
         # Primero se dibujan las bounding boxes sobre la imagen
@@ -255,7 +309,7 @@ class SpecificWorker(GenericWorker):
             
         return fotogramaConResultados
     
-    # ------------------------------------------
+    # ------------------------------------------------------------------
     
     def interfaz_usuario (self, fotogramaColor, fotogramaConResultados):
         # Se muestran por la interfaz de opencv cuyas ventanas tienen asignadas el nombre indicado

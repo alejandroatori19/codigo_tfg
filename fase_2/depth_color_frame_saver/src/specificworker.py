@@ -26,7 +26,7 @@ class SpecificWorker(GenericWorker):
 
     # Flags
     PREVISUALIZACION_VIDEO = False
-    REEMPLAZAR_DATASET_EXISTENTE = False
+    REEMPLAZAR_DATASET_EXISTENTE = True
 
     # Flags modificables por codigo
     CONEXION_ESTABLECIDA = False
@@ -73,7 +73,7 @@ class SpecificWorker(GenericWorker):
             # Se muestra al usuario el contenido (SIEMPRE)
             self.interfaz_usuario (fotogramaColor, fotogramaProfundidad)
 
-            if not self.PREVISUALIZACION_VIDEO:
+            if self.PREVISUALIZACION_VIDEO:
                 self.guardar_frames_en_disco (fotogramaColor, fotogramaProfundidad)
 
             # Se incrementa el contador de fotogramas
