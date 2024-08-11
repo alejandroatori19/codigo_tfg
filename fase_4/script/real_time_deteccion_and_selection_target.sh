@@ -1,0 +1,3 @@
+cd /home/robocomp/robocomp/codigo_tfg/fase_4/real_time_deteccion_and_selection_target
+
+src/real_time_deteccion_and_selection_target.py etc/config

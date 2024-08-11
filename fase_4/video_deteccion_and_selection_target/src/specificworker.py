@@ -18,33 +18,9 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, Dataset
 
 # Ignora un error que aparece al principio y que no afecta al código 
 warnings.filterwarnings("ignore", message=".*cudnn.*", category=UserWarning)
-
-# ----------------------------------
-
-class DatasetPersonalizado(Dataset):
-    def __init__(self, imagenesEntrada, resultadosImagenes):
-        self.imagenesEntrada = imagenesEntrada
-        self.resultadosImagenes = resultadosImagenes
-        transformacion = transforms.Compose([
-            transforms.ToPILImage(),  # Conversión de numpy a PIL Image
-            transforms.Resize((350, 150)),  # Redimensiona la imagen
-            transforms.ToTensor(),  # Conversion de imagen a tensor
-        ])              
-        
-    def __len__(self):
-        return len(self.imagenesEntrada)
-
-    def __getitem__(self, indice):
-        
-        imagenTransformada = self.transformacion(self.imagenesEntrada[indice])
-        
-        resultados = self.resultadosImagenes[indice]
-        
-        return imagenTransformada, resultados
 
 # -------------------------------
 
@@ -76,38 +52,17 @@ class SpecificWorker(GenericWorker):
     # Red neuronal encargada del proceso de trackeo
     redNeuronalEleccionObjetivo = None
     rutaParametrosRedNeuronal = "/home/robocomp/pruebas/model_state.pth"
-    optimizador = None
-    funcionPerdida = None
-    historialPerdidasEpoca = []
         
     # Parametros de la red neuronal y sus componentes
     PRECISION_MINIMA_SEGUIMIENTO = 0.8
-    TASA_APRENDIZAJE = 0.001
-    MOMENTUM = 0.9
     transform = transforms.Compose([
         transforms.ToPILImage(),  # Conversión de numpy a PIL Image
         transforms.Resize((350, 150)),  # Redimensiona la imagen
         transforms.ToTensor(),  # Conversion de imagen a tensor
     ])
     
-    # Entrenamiento de red neuronal
-    TAMANO_ENTRADA = [350, 150, 3 ]
-    IMAGENES_POR_EPOCA = 1000
-    batchSize = 32
-    
-    # Variables para entrenamiento (Modificables)    
-    entradaEntrenamiento = []
-    resultadoEntrenamiento = []
-    perdidasEpoca = None
-    contadorImagenesProcesadas = None
-    contadorEpocas = None
-    
-    
-    contadorImagenes = None
-    
     # Asigna el dispositivo
     DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    NUMERO_DECIMALES = 8
     
     # -------------------------------------------------
     
@@ -140,26 +95,19 @@ class SpecificWorker(GenericWorker):
     # --------------------------
 
     def setParams(self, params):
-        self.contadorImagenesProcesadas = 0
-        self.perdidasEpoca = 0
-        self.contadorEpocas = 0
         
-        self.contadorImagenes = 0
         return
 
     # ----------------
 
     @QtCore.Slot()
     def compute(self):
-        
-        print ("hola")
-
         # Recepcion de fotograma junto con un flag que indica si se ha recibido o no.
         hayFotograma, fotogramas = self.conexionGrabacion.try_wait_for_frames ()
                 
         # Si hay fotogramas actua, si no, no hace nada
         if hayFotograma:
-            fotogramaColor, fotogramaProfundidad = self.preparacion_fotogramas (fotogramas)
+            fotogramaColor = self.preparacion_fotogramas (fotogramas)
             
             # Procesa la imagen para obtener los resultados (Bounding Boxes de personas)
             resultados = self.redNeuronalYolo (fotogramaColor, verbose=False)
@@ -172,11 +120,7 @@ class SpecificWorker(GenericWorker):
             # Interfaz de usuario (Muestra imagen al usuario)
             self.interfaz_usuario (fotogramaColor, fotogramaConResultados)     
             
-            self.contadorImagenes += 1
-            print ("Numero Imagenes:", self.contadorImagenes)
-            
         else:
-            print ("Error")
             sys.exit ("Testing")
 
         return
@@ -219,9 +163,6 @@ class SpecificWorker(GenericWorker):
         self.redNeuronalEleccionObjetivo.load_state_dict(torch.load(self.rutaParametrosRedNeuronal))
         self.redNeuronalEleccionObjetivo = self.redNeuronalEleccionObjetivo.to (self.DISPOSITIVO)
         
-        # Parametros red neuronal de seguimiento (Entrenamiento y resultados)
-        self.funcionPerdida = nn.MSELoss()
-        self.optimizador = torch.optim.SGD(self.redNeuronalEleccionObjetivo.parameters(), lr=self.TASA_APRENDIZAJE, momentum=self.MOMENTUM) # Momentum = convergencia
         return
 
     # --------------------------------------------
@@ -229,13 +170,14 @@ class SpecificWorker(GenericWorker):
     def preparacion_fotogramas (self, fotogramas):
         # Obtención de datos de los fotogramas
         fotogramaColor = fotogramas.get_color_frame().get_data ()
-        fotogramaProfundidad = fotogramas.get_depth_frame().get_data ()
+        #fotogramaProfundidad = fotogramas.get_depth_frame().get_data ()
        
         # Se convierte en array para poder procesarlo con la red neuronal
         fotogramaColorArray = np.asanyarray(fotogramaColor)
-        fotogramaProfundidadArray = np.asanyarray(fotogramaColor)
+        #fotogramaProfundidadArray = np.asanyarray(fotogramaColor)
        
-        return fotogramaColorArray, fotogramaProfundidadArray
+        #return fotogramaColorArray, fotogramaProfundidadArray
+        return fotogramaColorArray
 
     # ------------------------------------------------------
     
@@ -314,7 +256,7 @@ class SpecificWorker(GenericWorker):
     def interfaz_usuario (self, fotogramaColor, fotogramaConResultados):
         # Se muestran por la interfaz de opencv cuyas ventanas tienen asignadas el nombre indicado
         cv.imshow ("Fotogramas Color", fotogramaColor)
-        cv.imshow ("Fotogramas Profundidad", fotogramaConResultados) 
+        cv.imshow ("Fotogramas con Resultados", fotogramaConResultados) 
         
         # Gestiona la tecla pulsada
         self.controlador_teclas (cv.waitKey (1))
