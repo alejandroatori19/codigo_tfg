@@ -243,7 +243,7 @@ class SpecificWorker(GenericWorker):
 
         return indiceObjetivo
 
-    # ------------------------------------
+    # ------------------------------------------------------------------------------------
     
     def guardado_rois_clasificados (self, fotograma, listaCajaColisiones, indiceObjetivo):
         # Lleva a cabo el conteo de detecciones
@@ -273,7 +273,7 @@ class SpecificWorker(GenericWorker):
 
         return
 
-    # -----------------------------------------------------------------------------------------
+    # --------------------------------------------------------------------------------------------------------------------
 
     def interfaz_usuario (self, fotogramaOriginal, listaPrecisionDetecciones, listaCajaColisiones, indicePersonaObjetivo):
         # Primero se dibujan las bounding boxes sobre la imagen

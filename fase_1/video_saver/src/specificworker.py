@@ -33,8 +33,6 @@ class SpecificWorker(GenericWorker):
     # Variables para generacion de resultados
     contadorFotogramas = None
     tiempo_conexion = None
-    motivo_finalizacion_video = None
-
 
     # CONSTRUCTOR, DESTRUCTOR Y METODOS PRINCIPALES
     def __init__(self, proxy_map, startup_check=False):
@@ -207,6 +205,5 @@ class SpecificWorker(GenericWorker):
 
     def setParams(self, params):
         self.contadorFotogramas = 0                 # Se encargara de contar cuantos frames se estan guardando en el video
-        self.motivo_finalizacion_video = -1     # Valor ilogico (Si se obtiene en los resultados un -1 es que algo fue mal)
 
         return True
