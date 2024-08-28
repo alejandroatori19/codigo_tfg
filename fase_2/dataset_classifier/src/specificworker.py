@@ -347,16 +347,16 @@ class SpecificWorker(GenericWorker):
         self.tiempoEjecucion = time.time() - self.tiempoEjecucion
 
         # Creacion de diccionario para guardar la informacion en formato JSON
-        resultadoFormatoJSON = {"Tiempo de conexion" : self.tiempoEjecucion,
-                                "Numero de frames guardados" : (self.contadorFotogramas - 1),
-                                "Ruta destino de la grabacion" : self.rutaDestinoDatasetClasificado
+        resultadoFormatoJSON = {"Tiempo de ejecucion" : self.tiempoEjecucion,
+                                "Numero de fotogramas procesados" : (self.contadorFotogramas - 1),
+                                "Ruta destino del dataset clasificado" : self.rutaDestinoDatasetClasificado
                                 }
         
         # Resultados por consola (Temporales)
         print ("\n\n----------- INICIO RESULTADOS -----------")
-        print ("Tiempo de conexion:", self.tiempoEjecucion, " segundos")
-        print ("Numero de fotogramas guardados:", (self.contadorFotogramas), "fotogramas")
-        print ("Ruta destino de la grabacion:", self.rutaDestinoDatasetClasificado)
+        print ("Tiempo de ejecucion:", self.tiempoEjecucion, " segundos")
+        print ("Numero de fotogramas procesados:", (self.contadorFotogramas), "fotogramas")
+        print ("Ruta destino del dataset clasificado:", self.rutaDestinoDatasetClasificado)
         print ("------------ FIN RESULTADOS ------------\n\n")
 
         # Resultados por archivo JSON (Permanentes)
