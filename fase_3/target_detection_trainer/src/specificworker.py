@@ -8,6 +8,7 @@ import sys
 import random
 import os
 import json
+import time
 
 # Dataset y Red Neuronal
 import torch
@@ -74,7 +75,7 @@ class SpecificWorker(GenericWorker):
     cargadorDatasetValidacion = None
     
     # Modificadores red neuronal
-    destinoModelo = "/home/robocomp/pruebas"
+    destinoModelo = "/home/robocomp"
     redNeuronal = None
     funcionPerdida = None
     optimizador = None
@@ -96,9 +97,15 @@ class SpecificWorker(GenericWorker):
     numeroImagenesValidacion = None
 
     # Flags
-    REEMPLAZAR_MODELO = False
+    REEMPLAZAR_MODELO = True
     NUMERO_DECIMALES = 8
     DISPOSITIVO = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Tiempos
+    tiempoInicio = time.time ()    
+    tiempoMedio = None
+    tiempoMedioPorEtapa = []
+    contadorProcesados = None
     
     # -------------------------------------------------
     
@@ -132,8 +139,8 @@ class SpecificWorker(GenericWorker):
         self.contadorImagenesProcesadas = 0
         self.perdidasProceso = 0
         self.estaEntrenando = True
-        
-        
+        self.contadorProcesados = 0
+        self.tiempoMedio = 0        
         return
 
     # ----------------
@@ -153,6 +160,10 @@ class SpecificWorker(GenericWorker):
                 
                 # Reset y adicción de variables
                 self.perdidasEntrenamiento.append (round (self.perdidasProceso / self.contadorImagenesProcesadas, self.NUMERO_DECIMALES))
+                self.tiempoMedioPorEtapa.append (round (self.tiempoMedio / self.contadorProcesados, self.NUMERO_DECIMALES))
+                
+                print ("tiempo medio por etapa:", self.tiempoMedioPorEtapa[-1])
+                
                 self.contadorImagenesProcesadas = 0
                 self.perdidasProceso = 0
                 
@@ -169,6 +180,8 @@ class SpecificWorker(GenericWorker):
                 self.perdidasValidacion.append (round (self.perdidasProceso / self.contadorImagenesProcesadas, self.NUMERO_DECIMALES))
                 self.contadorImagenesProcesadas = 0
                 self.perdidasProceso = 0
+                self.contadorProcesados = 0
+                self.tiempoMedio = 0
                 self.epoca += 1
                 
                 self.mostrar_resultados_epoca ()
@@ -278,9 +291,13 @@ class SpecificWorker(GenericWorker):
         # Se le asigna el gradiente a cero (Aprende)
         self.optimizador.zero_grad ()
 
+        tiempoInicio = time.time ()
+        
         # Prediccion de la red neuronal sobre las imagenes (Lote de x imagenes)
         resultadoRedNeuronal = self.redNeuronal (imagenesDispositivo)
 
+        self.tiempoMedio += (time.time () - tiempoInicio)
+        
         # Calculo de la perdida entre la prediccion y la realidad
         perdidaBatch = self.funcionPerdida (resultadoRedNeuronal, etiquetasDispositivo.unsqueeze(1))
 
@@ -294,6 +311,8 @@ class SpecificWorker(GenericWorker):
         
         # Incrementamos el numero de imagenes procesadas
         self.contadorImagenesProcesadas += self.batchSize
+        
+        self.contadorProcesados += 1
 
         return
     
@@ -334,6 +353,8 @@ class SpecificWorker(GenericWorker):
         print ("Epoca[" + str(self.epoca) + "/" + str(self.numeroEpocas) + "]", end="\t")        
         print ("Perdida entrenamiento (Medias): " + str(self.perdidasEntrenamiento[-1]), end="\t")
         print ("Perdida validacion (Medias): " + str(self.perdidasValidacion[-1]), end="\t")
+        print ("Tiempo (Medio): " + str(self.tiempoMedioPorEtapa[-1]), end="\t")
+        
         print ("")
 
         return
@@ -349,7 +370,7 @@ class SpecificWorker(GenericWorker):
         
         
         # Guardado en un string de los resultados por epoca de perdidas en entrenamiento y validacion
-        resultadosPorEpoca = [f"EPOCA[{i+1}/{self.numeroEpocas}]  -  Perdida Entrenamiento: {self.perdidasEntrenamiento[i]}  -  Perdida validacion: {self.perdidasValidacion[i]}" for i in range(self.numeroEpocas)]
+        resultadosPorEpoca = [f"EPOCA[{i+1}/{self.numeroEpocas}]  -  Perdida Entrenamiento: {self.perdidasEntrenamiento[i]}  -  Perdida validacion: {self.perdidasValidacion[i]} -  Tiempo Medio: {self.tiempoMedioPorEtapa[i]}" for i in range(self.numeroEpocas)]
         
         
         # Creacion de diccionario para guardar la informacion en formato JSON
@@ -357,7 +378,8 @@ class SpecificWorker(GenericWorker):
                                 "Numero de epocas" : self.numeroEpocas,
                                 "Tasa de aprendizaje" : self.tasaAprendizaje,
                                 "Tamano de batch" : self.batchSize,
-                                "Resultados entrenamiento y validacion" : resultadosPorEpoca
+                                "Resultados entrenamiento y validacion" : resultadosPorEpoca,
+                                "Tiempo medio" : str(time.time () - self.tiempoInicio) 
                                 }
         
         # Resultados por archivo JSON (Permanentes)
