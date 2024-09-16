@@ -23,18 +23,10 @@ El objetivo principal de este proyecto es simplificar el proceso de generación 
 ## Requisitos
 
 - Python 3.x
-- Bibliotecas: `opencv-python`, `numpy`, `pandas`, etc. (ver `requirements.txt` para la lista completa)
+- Bibliotecas: `opencv-python`, `numpy`, `pyrealsese2`, `pytorch`, `ultralytics`, `matplotlib`. (ver `requirements.txt` para la lista completa)
 
 ## Instalación
 
-1. Clona el repositorio: `git clone <URL del repositorio>`
-2. Navega al directorio del proyecto: `cd nombre-del-proyecto`
-3. Instala las dependencias: `pip install -r requirements.txt`
-
-## Contribuciones
-
-Las contribuciones al proyecto son bienvenidas. Si deseas colaborar, por favor, sigue estos pasos:
-1. Realiza un fork del repositorio.
-2. Crea una rama para tu característica o corrección: `git checkout -b mi-nueva-caracteristica`
-3. Realiza tus cambios y haz commit: `git commit -am 'Añadir nueva característica'`
-4. Envía un pull request.
+1. Clona el repositorio: `git clone https://github.com/alejandroatori19/generacion_conjunto_datos_seguimiento_personas`
+2. Navega al directorio del proyecto: `cd generacion_conjunto_datos_seguimiento_personas`
+3. Instala las dependencias: `pip3 install -r requirements.txt`
