@@ -1,1 +1,17 @@
+# Bibliotecas para procesamiento y manejo de vídeo
+opencv-python==4.7.0.72
 
+# Esencial para operaciones numéricas
+numpy==1.24.3
+
+# Biblioteca para cámaras RealSense (si utilizas cámaras Intel RealSense)
+pyrealsense2==2.50.0
+
+# Framework para aprendizaje profundo y redes neuronales
+torch==2.1.0
+
+# Biblioteca para modelos de detección de objetos, como YOLO
+ultralytics==8.0.25
+
+# Visualización y gráficos
+matplotlib==3.8.0
